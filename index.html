@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mapa de Termos — CPPU / SP Urbanismo</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg: #f4f5f3;
+    --panel-bg: #ffffff;
+    --ink: #1f2b24;
+    --ink-soft: #5b6660;
+    --line: #d9ddda;
+    --deferido: #2f7d4f;
+    --indeferido: #b13c3c;
+    --analise: #b8862b;
+    --accent: #1f4d3d;
+    --font-body: 'IBM Plex Sans', -apple-system, Segoe UI, sans-serif;
+    --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#12160f; --panel-bg:#1b2118; --ink:#e7ebe4; --ink-soft:#9aa79c; --line:#2c352a;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#12160f; --panel-bg:#1b2118; --ink:#e7ebe4; --ink-soft:#9aa79c; --line:#2c352a;
+  }
+  @font-face{ }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:var(--font-body);background:var(--bg);color:var(--ink);}
+
+  #app{display:flex;flex-direction:column;height:100vh;}
+
+  header{
+    padding:14px 22px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+    background:var(--panel-bg);
+  }
+  header .title-block h1{
+    margin:0;
+    font-size:1.05rem;
+    font-weight:600;
+    letter-spacing:0.01em;
+  }
+  header .title-block p{
+    margin:2px 0 0;
+    font-size:0.8rem;
+    color:var(--ink-soft);
+  }
+  .legend{
+    display:flex;
+    gap:18px;
+    font-size:0.78rem;
+    color:var(--ink-soft);
+  }
+  .legend span{display:flex;align-items:center;gap:6px;}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
+  .dot.deferido{background:var(--deferido);}
+  .dot.indeferido{background:var(--indeferido);}
+  .dot.analise{background:var(--analise);}
+
+  main{
+    flex:1;
+    display:flex;
+    min-height:0;
+    position:relative;
+  }
+  #map{flex:1;min-width:0;}
+
+  #panel{
+    width:0;
+    overflow:hidden;
+    background:var(--panel-bg);
+    border-left:1px solid var(--line);
+    transition:width 0.28s ease;
+    flex-shrink:0;
+  }
+  #panel.open{
+    width:min(400px, 92vw);
+  }
+  #panel-inner{
+    width:min(400px, 92vw);
+    height:100%;
+    overflow-y:auto;
+    padding:22px 24px 30px;
+  }
+  #panel-close{
+    background:none;
+    border:none;
+    color:var(--ink-soft);
+    font-size:0.85rem;
+    cursor:pointer;
+    padding:0;
+    margin-bottom:18px;
+  }
+  #panel-close:hover{color:var(--ink);}
+
+  .status-pill{
+    display:inline-block;
+    font-size:0.72rem;
+    font-weight:600;
+    padding:3px 10px;
+    border-radius:100px;
+    margin-bottom:12px;
+  }
+  .status-pill.deferido{background:rgba(47,125,79,0.14); color:var(--deferido);}
+  .status-pill.indeferido{background:rgba(177,60,60,0.14); color:var(--indeferido);}
+  .status-pill.analise{background:rgba(184,134,43,0.14); color:var(--analise);}
+
+  #panel h2{
+    margin:0 0 4px;
+    font-size:1.15rem;
+    line-height:1.3;
+    font-weight:600;
+  }
+  #panel .processo{
+    font-family:var(--font-mono);
+    font-size:0.78rem;
+    color:var(--ink-soft);
+    margin-bottom:18px;
+  }
+
+  table.detail{
+    width:100%;
+    border-collapse:collapse;
+    font-size:0.85rem;
+  }
+  table.detail tr{border-top:1px solid var(--line);}
+  table.detail tr:first-child{border-top:none;}
+  table.detail td{padding:9px 0;vertical-align:top;}
+  table.detail td.label{
+    color:var(--ink-soft);
+    width:38%;
+    padding-right:12px;
+    font-size:0.78rem;
+  }
+  table.detail td.value{font-weight:500;}
+
+  #empty-hint{
+    padding:22px 24px;
+    color:var(--ink-soft);
+    font-size:0.85rem;
+    line-height:1.5;
+  }
+
+  .leaflet-popup-content{font-family:var(--font-body); font-size:0.85rem;}
+
+  @media (max-width: 720px){
+    #panel.open{
+      position:absolute;
+      right:0; top:0; bottom:0;
+      width:100%;
+      z-index:1000;
+    }
+    #panel-inner{width:100%;}
+    .legend{display:none;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="title-block">
+      <h1>Termos de Cooperação e Doação — CPPU</h1>
+      <p>SP Urbanismo · São Paulo</p>
+    </div>
+    <div class="legend">
+      <span><i class="dot deferido"></i>Deferido</span>
+      <span><i class="dot indeferido"></i>Indeferido</span>
+      <span><i class="dot analise"></i>Em análise</span>
+    </div>
+  </header>
+  <main>
+    <div id="map"></div>
+    <div id="panel">
+      <div id="panel-inner"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ---- Dados (termos_final.geojson embutido) ----
+const TERMOS_GEOJSON = {
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "MultiPolygon", "coordinates": [[[[-46.649083690099374,-23.538333643436214],[-46.64913521390403,-23.538253811446697],[-46.64911293222955,-23.53825008155167],[-46.64907685872374,-23.538244042521217],[-46.64905706754654,-23.53824186651577],[-46.64898910477744,-23.53834785012307],[-46.64883657433194,-23.538587140066127],[-46.64889619774917,-23.538624143582524],[-46.64903616441469,-23.53840727980135],[-46.64906876392181,-23.538356770161986],[-46.649083690099374,-23.538333643436214]]]]},
+      "properties": {
+        "processo": "6056.2023/0016886-2",
+        "tipo": "Termo de Cooperação",
+        "interessado": "Vitaurbana Ana Cintra Empreendimento Imobiliários",
+        "objeto": "Projeto de Paisagismo e Acessibilidade",
+        "endereco": "Rua Ana Cintra, 272",
+        "subprefeitura": "Sé",
+        "status": "DEFERIDO",
+        "data_decisao": "12/09/2025",
+        "valor": 169068.75,
+        "resolucao": "Decretos: 52.062/2010, 48.909/2007, 58.102/2018",
+        "obs": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-46.65824094541031,-23.546042342586553]},
+      "properties": {
+        "processo": "6027.2024/0027701-0",
+        "tipo": "Termo de Cooperação",
+        "interessado": "Best Players Produções e Eventos / SVMA",
+        "objeto": "Área Canina do Parque Buenos Aires",
+        "endereco": "Parque Buenos Aires, Higienópolis",
+        "subprefeitura": "Sé",
+        "status": "EM ANÁLISE",
+        "data_decisao": "",
+        "valor": 150000.0,
+        "resolucao": "",
+        "obs": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-46.67337990258224,-23.59480479233713]},
+      "properties": {
+        "processo": "6050.2025/0027880-4",
+        "tipo": "Termo de Doação",
+        "interessado": "F.A. Alvarez Artes Ltda.",
+        "objeto": "Obra de Arte \"Onde Tudo se Encontra\"",
+        "endereco": "Praça Santa Justina, Vila Nova Conceição",
+        "subprefeitura": "Pinheiros",
+        "status": "EM ANÁLISE",
+        "data_decisao": "",
+        "valor": 85000.0,
+        "resolucao": "",
+        "obs": ""
+      }
+    }
+  ]
+};
+
+// ---- Helpers ----
+function statusInfo(status){
+  const s = (status || "").toUpperCase();
+  if (s === "DEFERIDO") return {css: "deferido", color: "#2f7d4f", label: "Deferido"};
+  if (s === "INDEFERIDO") return {css: "indeferido", color: "#b13c3c", label: "Indeferido"};
+  return {css: "analise", color: "#b8862b", label: "Em análise"};
+}
+
+function formatCurrency(v){
+  if (v === null || v === undefined || v === "") return "—";
+  return Number(v).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+}
+
+function escapeHtml(str){
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ---- Mapa ----
+const map = L.map('map', {zoomControl: true}).setView([-23.55, -46.63], 12);
+
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 19,
+  attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, OpenStreetMap contributors'
+}).addTo(map);
+
+const panel = document.getElementById('panel');
+const panelInner = document.getElementById('panel-inner');
+
+function renderEmptyPanel(){
+  panel.classList.remove('open');
+  panelInner.innerHTML = '';
+}
+
+function openPanel(props){
+  const info = statusInfo(props.status);
+  const rows = [
+    ["Interessado", props.interessado],
+    ["Objeto", props.objeto],
+    ["Endereço", props.endereco],
+    ["Subprefeitura", props.subprefeitura],
+    ["Tipo", props.tipo],
+    ["Data da decisão", props.data_decisao || "—"],
+    ["Valor", formatCurrency(props.valor)],
+    ["Resolução aplicada", props.resolucao || "—"],
+    ["Observações", props.obs || "—"],
+  ];
+
+  panelInner.innerHTML = `
+    <button id="panel-close">← Fechar</button>
+    <span class="status-pill ${info.css}">${info.label}</span>
+    <h2>${escapeHtml(props.interessado)}</h2>
+    <div class="processo">Processo SEI ${escapeHtml(props.processo)}</div>
+    <table class="detail">
+      ${rows.map(([label, value]) => `
+        <tr>
+          <td class="label">${escapeHtml(label)}</td>
+          <td class="value">${escapeHtml(value)}</td>
+        </tr>
+      `).join('')}
+    </table>
+  `;
+  panel.classList.add('open');
+  document.getElementById('panel-close').addEventListener('click', renderEmptyPanel);
+}
+
+// estilo dos polígonos
+function polygonStyle(feature){
+  const info = statusInfo(feature.properties.status);
+  return {
+    color: info.color,
+    weight: 2,
+    fillColor: info.color,
+    fillOpacity: 0.28
+  };
+}
+
+// marcador circular colorido para pontos
+function pointToLayer(feature, latlng){
+  const info = statusInfo(feature.properties.status);
+  return L.circleMarker(latlng, {
+    radius: 9,
+    color: '#ffffff',
+    weight: 2,
+    fillColor: info.color,
+    fillOpacity: 0.95
+  });
+}
+
+function onEachFeature(feature, layer){
+  layer.on('click', function(){
+    openPanel(feature.properties);
+    if (feature.geometry.type.includes('Polygon')){
+      map.fitBounds(layer.getBounds(), {maxZoom: 18, padding:[40,40]});
+    } else {
+      map.setView(layer.getLatLng(), 18);
+    }
+  });
+
+  layer.bindTooltip(
+    `${feature.properties.interessado} — ${statusInfo(feature.properties.status).label}`,
+    {sticky: true}
+  );
+}
+
+const geoLayer = L.geoJSON(TERMOS_GEOJSON, {
+  style: polygonStyle,
+  pointToLayer: pointToLayer,
+  onEachFeature: onEachFeature
+}).addTo(map);
+
+map.fitBounds(geoLayer.getBounds(), {padding: [60,60], maxZoom: 14});
+
+renderEmptyPanel();
+</script>
+</body>
+</html>
